@@ -28,7 +28,7 @@ jobs:
       - name: Launch EC2 Instance
         id: ec2-instance
         run: |
-          INSTANCE_ID=$(aws ec2 run-instances --image-id ami-05edf2d87fdbd91c1 --instance-type t2.micro --key-name ${{ secrets.AWS_SSH_KEY_NAME }} --security-group-ids sg-12345678 --subnet-id subnet-12345678 --query 'Instances[0].InstanceId' --output text)
+          INSTANCE_ID=$(aws ec2 run-instances --image-id ami-05edf2d87fdbd91c1 --instance-type t2.micro --key-name ${{ secrets.AWS_SSH_KEY_NAME }} --security-group-ids sg-91ff06db --query 'Instances[0].InstanceId' --output text)
           echo "EC2 Instance launched with ID: $INSTANCE_ID"
           echo "::set-output name=instance_id::$INSTANCE_ID"
         
