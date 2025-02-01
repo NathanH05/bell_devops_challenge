@@ -43,8 +43,8 @@ jobs:
           echo "EC2 Instance IP Address: $IP_ADDRESS"
           echo "::set-output name=ip_address::$IP_ADDRESS"
 
-      - name: Install Ansible on EC2 Instance
-        uses: appleboy/ssh-action@v0.0.0
+      - name: Install ansible
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ steps.ec2-ip.outputs.ip_address }}
           username: ubuntu
