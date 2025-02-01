@@ -1,0 +1,79 @@
+name: DevOps Challenge Setup
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  setup-ec2-instance:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up AWS CLI
+        run: |
+          curl "https://d1vvhvl2y92vvt.cloudfront.net/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install
+
+      - name: Configure AWS CLI with GitHub Secrets
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set region eu-west-1
+
+      - name: Launch EC2 Instance
+        id: ec2-instance
+        run: |
+          INSTANCE_ID=$(aws ec2 run-instances --image-id ami-05edf2d87fdbd91c1 --instance-type t2.micro --key-name ${{ secrets.AWS_SSH_KEY_NAME }} --security-group-ids sg-12345678 --subnet-id subnet-12345678 --query 'Instances[0].InstanceId' --output text)
+          echo "EC2 Instance launched with ID: $INSTANCE_ID"
+          echo "::set-output name=instance_id::$INSTANCE_ID"
+        
+      - name: Wait for EC2 Instance to be Running
+        run: |
+          aws ec2 wait instance-running --instance-ids ${{ steps.ec2-instance.outputs.instance_id }}
+      
+      - name: Get EC2 Instance Public IP
+        id: ec2-ip
+        run: |
+          IP_ADDRESS=$(aws ec2 describe-instances --instance-ids ${{ steps.ec2-instance.outputs.instance_id }} --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
+          echo "EC2 Instance IP Address: $IP_ADDRESS"
+          echo "::set-output name=ip_address::$IP_ADDRESS"
+
+      - name: Install Ansible on EC2 Instance
+        uses: appleboy/ssh-action@v0.0.0
+        with:
+          host: ${{ steps.ec2-ip.outputs.ip_address }}
+          username: ubuntu
+          key: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
+          script: |
+            sudo apt update && sudo apt install -y ansible
+
+      - name: Configure EC2 Instance with Ansible
+        uses: appleboy/ssh-action@v0.0.0
+        with:
+          host: ${{ steps.ec2-ip.outputs.ip_address }}
+          username: ubuntu
+          key: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
+          script: |
+            ansible-playbook playbook.yml
+
+      - name: Install InSpec
+        run: |
+          curl https://omnitruck.chef.io/install.sh | sudo bash -s -- -P inspec
+
+      - name: Verify EC2 Instance Configuration with InSpec
+        uses: appleboy/ssh-action@v0.0.0
+        with:
+          host: ${{ steps.ec2-ip.outputs.ip_address }}
+          username: ubuntu
+          key: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
+          script: |
+            inspec exec inspec_test.rb
+            if [ $? -ne 0 ]; then
+              echo "InSpec tests failed"
+              exit 1
+            fi

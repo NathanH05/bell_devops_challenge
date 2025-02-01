@@ -1,0 +1,58 @@
+---
+- name: DevOps Challenge Setup
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - nginx
+          - git
+          - python3
+        state: present
+        update_cache: yes
+
+    - name: Configure Nginx default webpage
+      copy:
+        content: "Welcome to the DevOps Challenge"
+        dest: /var/www/html/index.html
+      notify: Restart nginx
+
+    - name: Disable root login via SSH
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+      notify: Restart SSH
+
+    - name: Setup SSH port
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?Port'
+        line: 'Port 22'
+      notify: Restart SSH
+
+    - name: Create devops user
+      user:
+        name: devops
+        groups: sudo
+        append: yes
+        shell: /bin/bash
+
+    - name: Set up SSH key for devops user
+      authorized_key:
+        user: devops
+        state: present
+        key: "{{ lookup('file', '../../id_rsa.pub') }}"
+
+  handlers:
+    - name: Restart nginx
+      service:
+        name: nginx
+        state: restarted
+
+    - name: Restart SSH
+      service:
+        name: sshd
+        state: restarted
