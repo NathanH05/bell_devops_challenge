@@ -57,13 +57,6 @@ jobs:
           echo "EC2 Instance Public DNS: $PUBLIC_DNS"
           echo "::set-output name=public_dns::$PUBLIC_DNS"
 
-      - name: Install SSM Agent
-        id: install-ssm-agent
-        run: |
-          sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
-          sudo systemctl enable amazon-ssm-agent
-          sudo systemctl start amazon-ssm-agent
-
       - name: Install Ansible on EC2 Instance
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -75,6 +68,9 @@ jobs:
           script: |
             sudo yum update -y
             sudo yum install -y ansible
+            sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+            sudo systemctl enable amazon-ssm-agent
+            sudo systemctl start amazon-ssm-agent
 
       - name: Configure SSH for Ansible
         run: |
