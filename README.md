@@ -65,7 +65,7 @@ To trigger the workflow:
 - InSpec tests ensuring compliance with the required setup.
 - The workflow will fail if any step (Ansible configuration or InSpec tests) encounters an error.
 - Inspec test results:
-![alt text](image.png)
+![alt text](docs/image.png)
 
 ## Notes
 
