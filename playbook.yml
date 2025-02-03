@@ -5,13 +5,19 @@
 
   tasks:
     - name: Install required packages
-      apt:
+      yum:
         name:
           - nginx
           - git
           - python3
         state: present
         update_cache: yes
+
+    - name: Ensure /var/www/html exists
+      file:
+        path: /var/www/html
+        state: directory
+        mode: '0755'
 
     - name: Configure Nginx default webpage
       copy:
@@ -36,23 +42,53 @@
     - name: Create devops user
       user:
         name: devops
-        groups: sudo
+        groups: wheel
         append: yes
         shell: /bin/bash
 
-    - name: Set up SSH key for devops user
+    - name: Ensure .ssh directory exists for devops user
+      file:
+        path: "/home/devops/.ssh"
+        state: directory
+        mode: "0700"
+        owner: devops
+        group: devops
+      become: true
+
+    - name: Generate SSH key for devops user
+      openssh_keypair:
+        path: "/home/devops/.ssh/id_rsa"  # Path for private key
+        owner: devops
+        group: devops
+        mode: 0600  # Permissions for private key
+        size: 2048  # Key size
+        type: rsa  # Type of the key (RSA)
+        comment: "devops-key"  # Optional comment in the key
+      become: true
+
+    - name: Ensure ec2-user has access to the private key
+      file:
+        path: "/home/devops/.ssh/id_rsa"
+        owner: devops
+        group: devops
+        mode: "0640"  # Readable by the group (ec2-user will need to be in the group)
+      become: true
+
+    - name: Add ec2-user to devops group
+      user:
+        name: ec2-user
+        groups: devops
+        append: yes
+      become: true
+
+    - name: Fetch public key from the generated private key
+      command: "cat /home/devops/.ssh/id_rsa.pub"
+      register: public_key
+      become: true
+
+    - name: Add public key to authorized_keys for devops user
       authorized_key:
         user: devops
         state: present
-        key: "{{ lookup('file', '../../id_rsa.pub') }}"
-
-  handlers:
-    - name: Restart nginx
-      service:
-        name: nginx
-        state: restarted
-
-    - name: Restart SSH
-      service:
-        name: sshd
-        state: restarted
+        key: "{{ public_key.stdout }}"
+      become: true
