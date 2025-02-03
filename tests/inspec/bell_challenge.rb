@@ -18,5 +18,5 @@ end
 
 describe user('devops') do
     it { should exist }
-    its('groups') { should include 'sudo' }
+    its('groups') { should include 'wheel' }
 end
