@@ -64,6 +64,8 @@ To trigger the workflow:
 - A running EC2 instance configured with Nginx, Git, Python3, and a `devops` user with SSH access.
 - InSpec tests ensuring compliance with the required setup.
 - The workflow will fail if any step (Ansible configuration or InSpec tests) encounters an error.
+- Inspec test results:
+![alt text](docs/image.png)
 
 ## Notes
 
