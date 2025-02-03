@@ -100,6 +100,6 @@ jobs:
           --cloud-watch-output-config '{"CloudWatchLogGroupName":"test","CloudWatchOutputEnabled":true}' \
           --region us-east-1
 
-      - name: Run InSpec tests on EC2 instance
+      - name: Show summarized inspect tests
         run: |
           aws ssm list-resource-compliance-summaries --filters Key=ComplianceType,Values=Custom:Inspec
