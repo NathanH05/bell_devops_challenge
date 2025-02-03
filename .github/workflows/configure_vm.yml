@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat/ansible-devops-vm
 
 jobs:
   setup-ec2-instance:
@@ -13,68 +14,85 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      # - name: Set up AWS CLI
-      #   run: |
-      #     curl "https://d1vvhvl2y92vvt.cloudfront.net/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-      #     unzip awscliv2.zip
-      #     sudo ./aws/install
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - name: Configure AWS CLI with GitHub Secrets
+      - name: Check for Existing EC2 Instance
+        id: check-ec2
         run: |
-          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws configure set region eu-west-1
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=instance-state-name,Values=running" \
+                      "Name=tag:Name,Values=DevOpsChallengeInstance" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text)
 
-      - name: Launch EC2 Instance
-        id: ec2-instance
-        run: |
-          INSTANCE_ID=$(aws ec2 run-instances --image-id ami-05edf2d87fdbd91c1 --instance-type t2.micro --key-name ${{ secrets.AWS_SSH_KEY_NAME }} --security-group-ids sg-04f1d951ea95c14f2 --query 'Instances[0].InstanceId' --output text)
-          echo "EC2 Instance launched with ID: $INSTANCE_ID"
+          if [ "$INSTANCE_ID" == "None" ]; then
+            echo "No existing instance found. Launching a new one..."
+            INSTANCE_ID=$(aws ec2 run-instances \
+              --image-id ami-0c614dee691cbbf37 \
+              --instance-type t2.micro \
+              --key-name ${{ secrets.AWS_SSH_KEY_NAME }} \
+              --security-group-ids sg-04f1d951ea95c14f2 \
+              --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=DevOpsChallengeInstance}]' \
+              --query 'Instances[0].InstanceId' \
+              --output text)
+          else
+            echo "Using existing EC2 Instance: $INSTANCE_ID"
+          fi
+
           echo "::set-output name=instance_id::$INSTANCE_ID"
-        
+
       - name: Wait for EC2 Instance to be Running
         run: |
-          aws ec2 wait instance-running --instance-ids ${{ steps.ec2-instance.outputs.instance_id }}
-      
-      - name: Get EC2 Instance Public IP
-        id: ec2-ip
+          aws ec2 wait instance-running --instance-ids ${{ steps.check-ec2.outputs.instance_id }}
+
+      - name: Get EC2 Instance Public DNS
+        id: ec2-dns
         run: |
-          IP_ADDRESS=$(aws ec2 describe-instances --instance-ids ${{ steps.ec2-instance.outputs.instance_id }} --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
-          echo "EC2 Instance IP Address: $IP_ADDRESS"
-          echo "::set-output name=ip_address::$IP_ADDRESS"
+          PUBLIC_DNS=$(aws ec2 describe-instances --instance-ids ${{ steps.check-ec2.outputs.instance_id }} --query 'Reservations[0].Instances[0].PublicDnsName' --output text)
+          echo "EC2 Instance Public DNS: $PUBLIC_DNS"
+          echo "::set-output name=public_dns::$PUBLIC_DNS"
 
-      - name: Install ansible
+      - name: Install Ansible on EC2 Instance
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ steps.ec2-ip.outputs.ip_address }}
-          username: ubuntu
+          host: ${{ steps.ec2-dns.outputs.public_dns }}
+          username: ec2-user
           key: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
+          port: 22
+          script_stop: true
           script: |
-            sudo apt update && sudo apt install -y ansible
+            sudo yum update -y
+            sudo yum install -y ansible
 
-      - name: Configure EC2 Instance with Ansible
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ steps.ec2-ip.outputs.ip_address }}
-          username: ubuntu
-          key: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
-          script: |
-            ansible-playbook playbook.yml
-
-      - name: Install InSpec
+      - name: Configure SSH for Ansible
         run: |
-          curl https://omnitruck.chef.io/install.sh | sudo bash -s -- -P inspec
+          echo "${{ secrets.AWS_SSH_PRIVATE_KEY }}" > private_key.pem
+          chmod 600 private_key.pem
+          cat >> ansible_inventory.ini <<EOL
+          [ec2-instance]
+          ${{ steps.ec2-dns.outputs.public_dns }} ansible_user=ec2-user ansible_ssh_private_key_file=private_key.pem ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+          EOL
 
-      - name: Verify EC2 Instance Configuration with InSpec
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ steps.ec2-ip.outputs.ip_address }}
-          username: ubuntu
-          key: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
-          script: |
-            inspec exec inspec_test.rb
-            if [ $? -ne 0 ]; then
-              echo "InSpec tests failed"
-              exit 1
-            fi
+      # - name: Run Ansible Playbook
+      #   run: |
+      #     ansible-playbook -i ansible_inventory.ini playbook.yml
 
+      - name: Save SSH key to a file
+        run: |
+          echo "${{ secrets.AWS_SSH_PRIVATE_KEY }}" > /tmp/aws_ssh_key.pem
+          chmod 600 /tmp/aws_ssh_key.pem  # Set proper permissions for the key file
+
+      - name: Run InSpec tests on EC2 instance
+        run: |
+          aws ssm send-command \
+            --document-name "AWS-RunInspecChecks" \
+            --targets '[{"Key":"tag:Name","Values":["DevOpsChallengeInstance"]}]' \
+            --parameters '{"sourceType":["GitHub"],"sourceInfo":["{\"owner\":\"NathanH05\", \"repository\":\"bell_devops_challenge\", \"path\": \"tests/inspec/bell_challenge.rb\"}"]}'
+      - name: Run InSpec tests on EC2 instance
+        run: |
+          aws ssm list-resource-compliance-summaries --filters Key=ComplianceType,Values=Custom:Inspec

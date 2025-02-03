@@ -20,4 +20,3 @@ describe user('devops') do
     it { should exist }
     its('groups') { should include 'sudo' }
 end
-  
